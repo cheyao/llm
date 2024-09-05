@@ -28,7 +28,7 @@ class Tokenizer:
         return output;
 
 def main() -> None:
-    with open('verdict') as file:
+    with open('data.txt') as file:
         text = file.read()
 
     print(f"The verdict is {len(text)} characters long");
@@ -37,6 +37,9 @@ def main() -> None:
     print(f"This text consists of {len(tokens)} tokens");
 
     tokenizer = Tokenizer(tokens);
+
+    while 1:
+        print(tokenizer.decode(tokenizer.encode(input())))
 
 if __name__ == "__main__":
     main();
