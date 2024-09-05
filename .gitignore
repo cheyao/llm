@@ -1,6 +1,8 @@
 messages/
 messages.json
 data.txt
+llm/
+wizard.txt
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,visualstudio,macos,vim
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,visualstudiocode,visualstudio,macos,vim
