@@ -7,6 +7,7 @@ import re
 # Regex is not for phrasing json
 # Used it to phrase json when I was a biginner :(
 import torch
+from torch import Tensor
 from torch.utils.data import Dataset, DataLoader
 
 class Tokenizer:
@@ -29,24 +30,29 @@ class Tokenizer:
         output = re.sub(r'\s+([,.?!"()\'])', r'\1', output);
         return output;
 
-class Data:
-    def __init__(self, text: str, tokenizer: Tokenizer, max_length: int, stride: int):
+class Data(Dataset):
+    def __init__(self, text: str, tokenizer: Tokenizer, max_length: int, stride: int) -> None:
         self.tokenizer = tokenizer;
         self.inputs = [];
         self.targets = [];
 
         tokens = tokenizer.encode(text);
         for i in range(0, len(tokens) - max_length, stride):
-            input_chunk = tokens[i:i + max_length];
-            target_chunk = tokens[i + 1: i + max_length + 1];
-            self.inputs.append(torch.tensor(input_chunk));
-            self.targets.append(torch.tensor(target_chunk));
+            inputChunk = tokens[i:i + max_length];
+            targetChunk = tokens[i + 1: i + max_length + 1];
+            self.inputs.append(torch.tensor(inputChunk));
+            self.targets.append(torch.tensor(targetChunk));
 
-        def __len__(self):
-            return len(self.input_ids);
+    def __len__(self) -> int:
+        return len(self.inputs);
 
-        def __getitem__(self, index: int):
-            return self.input_ids[index], self.target_ids[index];
+    def __getitem__(self, index: int) -> tuple[Tensor, Tensor]:
+        return self.inputs[index], self.targets[index];
+
+def makeLoader(text: str, tokenizer: Tokenizer, batch_size: int = 4, max_length: int = 256, stride: int = 128, shuffle: bool = True, drop_last: bool = True) -> DataLoader:
+    data = Data(text, tokenizer, max_length, stride);
+    dataLoader = DataLoader(data, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last);
+    return dataLoader;
 
 def main() -> None:
     with open('verdict', mode="r", encoding="utf-8") as file:
@@ -56,16 +62,12 @@ def main() -> None:
 
     tokens: list[str] = [token for token in re.split(r'([,.!?:;_"()\']|--|\s)', text) if token.strip()];
     print(f"This text consists of {len(tokens)} tokens");
-
     tokenizer = Tokenizer(tokens);
-
-    input = tokenizer.encode(text);
-
-    contextSize = 10;
-    for i in range(contextSize + 1):
-        input = input[:i];
-        target = input[i];
-        print(f'{tokenizer.decode(input)} + {tokenizer.decode([target])}');
+    loader = makeLoader(text, tokenizer);
+    it = iter(loader);
+    inputs, targets = next(it);
+    print(inputs);
+    print(targets);
 
 if __name__ == "__main__":
     main();
