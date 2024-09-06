@@ -26,17 +26,17 @@ class Tokenizer:
         return tokens;
 
     def decode(self, tokens: list[int]) -> str:
-        output = ' '.join([self.reverse_dict[token] for token in tokens]);
-        output = re.sub(r'\s+([,.?!"()\'])', r'\1', output);
+        output: str = ' '.join([self.reverse_dict[token] for token in tokens]);
+        output: str = re.sub(r'\s+([,.?!"()\'])', r'\1', output);
         return output;
 
 class Data(Dataset):
     def __init__(self, text: str, tokenizer: Tokenizer, max_length: int, stride: int) -> None:
-        self.tokenizer = tokenizer;
-        self.inputs = [];
-        self.targets = [];
+        self.tokenizer: Tokenizer = tokenizer;
+        self.inputs: list[Tensor] = [];
+        self.targets: list[Tensor] = [];
 
-        tokens = tokenizer.encode(text);
+        tokens: list[int] = tokenizer.encode(text);
         for i in range(0, len(tokens) - max_length, stride):
             inputChunk = tokens[i:i + max_length];
             targetChunk = tokens[i + 1: i + max_length + 1];
@@ -50,22 +50,26 @@ class Data(Dataset):
         return self.inputs[index], self.targets[index];
 
 def makeLoader(text: str, tokenizer: Tokenizer, batch_size: int = 4, max_length: int = 256, stride: int = 128, shuffle: bool = True, drop_last: bool = True) -> DataLoader:
-    data = Data(text, tokenizer, max_length, stride);
-    dataLoader = DataLoader(data, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last);
+    data: Data = Data(text, tokenizer, max_length, stride);
+    dataLoader: DataLoader = DataLoader(data, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last);
     return dataLoader;
 
 def main() -> None:
     with open('verdict', mode="r", encoding="utf-8") as file:
-        text = file.read();
+        text: str = file.read();
 
     print(f"The verdict is {len(text)} characters long");
 
     tokens: list[str] = [token for token in re.split(r'([,.!?:;_"()\']|--|\s)', text) if token.strip()];
     print(f"This text consists of {len(tokens)} tokens");
-    tokenizer = Tokenizer(tokens);
-    loader = makeLoader(text, tokenizer);
+    tokenizer: Tokenizer = Tokenizer(tokens);
+    loader: DataLoader = makeLoader(text, tokenizer);
     it = iter(loader);
     inputs, targets = next(it);
+
+    embedding = torch.nn.Embedding(4, 256);
+    inputs += embedding(torch.arange(4));
+
     print(inputs);
     print(targets);
 
