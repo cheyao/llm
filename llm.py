@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 
+import os
+import sys
 import re
+from pathlib import Path
 # Regex is not for phrasing json
 # Regex is not for phrasing json
 # Regex is not for phrasing json
@@ -316,6 +319,26 @@ def trainModel(model: GPT, trainLoader: DataLoader, testLoader: DataLoader, opti
                 trainLoss, testLoss = evaluateModel(model, trainLoader, testLoader, device, evalIter);
                 print(f"Cycle {epoch+1} (Step {step:06d}): ");
                 print(f"Train loss {trainLoss:.3f}, Test loss {testLoss:.3f}");
+            
+            if step % 80 == 0 and not step == 0:
+                out = textGenerator(
+                    model=model,
+                    batch=torch.tensor(tokenizer.encode(startContext)).unsqueeze(0),
+                    maxNewTokens=10,
+                    contextSize=CONFIG["context_length"]
+                );
+
+                print(tokenizer.decodeTensor(out));
+
+                break;
+
+        if Path("state.pth.old").exists():
+            Path("state.pth.old").unlink();
+
+        if Path("state.pth").exists():
+            os.rename("state.pth", "state.pth.old");
+
+        torch.save({"modelState": model.state_dict(), "optimizerState": optimizer.state_dict()}, "state.pth");
 
         out = textGenerator(
             model=model,
@@ -326,7 +349,12 @@ def trainModel(model: GPT, trainLoader: DataLoader, testLoader: DataLoader, opti
         print(tokenizer.decodeTensor(out));
 
 def main() -> None:
-    with open("verdict.txt", mode="r", encoding="utf-8") as file:
+    # 1st and 2nd part of Ascendance of a Bookworm
+    # 814028 tokens
+    # 3819442 characters
+    # 17817 unique words
+    # Read the book, it's peak fiction
+    with open("ln/aob-12-part.txt", mode="r", encoding="utf-8") as file:
         data: str = file.read();
 
     tokens: list[str] = [token for token in re.split(r'([,.!?:;_"()\'{}]|--|\s)', data) if token.strip()];
@@ -344,19 +372,39 @@ def main() -> None:
 
     trainLoader: DataLoader = makeLoader(trainData, tokenizer=tokenizer, batchSize=2, maxLength=CONFIG["context_length"], stride=CONFIG["context_length"], shuffle=True, dropLast=True);
     testLoader: DataLoader = makeLoader(testData, tokenizer=tokenizer, batchSize=2, maxLength=CONFIG["context_length"], stride=CONFIG["context_length"], shuffle=False, dropLast=False);
+    checkpoint = torch.load(sys.argv[1], weights_only=True)
 
     model: GPT = GPT(tokenizer.vocabSize());
     model.to(device);
+    model.load_state_dict(checkpoint["modelState"]);
+    model.train();
 
     params: int = sum(p.numel() for p in model.parameters());
 
     print(f"Total number of parameters is {params}");
 
     optimizer = AdamW(model.parameters(), lr=0.0004, weight_decay=0.1);
+    optimizer.load_state_dict(checkpoint["optimizerState"]);
 
-    numEpochs = 10;
-    trainModel(model, trainLoader=trainLoader, testLoader=testLoader, optimizer=optimizer, device=device, numEpochs=numEpochs, evalFreq=5, evalIter=5, startContext="three years later", tokenizer=tokenizer);
+    if len(sys.argv) == 2:
+        numEpochs = 1000;
+        trainModel(model, trainLoader=trainLoader, testLoader=testLoader, optimizer=optimizer, device=device, numEpochs=numEpochs, evalFreq=10, evalIter=5, startContext="three years later", tokenizer=tokenizer);
+    else:
+        while True:
+            i: str = input("Prompt: ");
+            out = textGenerator(
+                model=model,
+                batch=torch.tensor(tokenizer.encode(i)).unsqueeze(0),
+                maxNewTokens=10,
+                contextSize=CONFIG["context_length"]
+            );
+            print("Output: ", tokenizer.decodeTensor(out));
 
 if __name__ == "__main__":
-    main();
+    torch.set_num_threads(2); # Gotta leave overnight
+
+    if len(sys.argv) == 1:
+        print(f"Usage: {sys.argv[0]} [model] {{Thing}}")
+    else:
+        main();
 
