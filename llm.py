@@ -7,7 +7,6 @@ import re
 # Regex is not for phrasing json
 # Used it to phrase json when I was a biginner :(
 import torch
-import matplotlib
 from torch import Tensor, inf
 from torch.nn import Embedding, Linear, Module, Dropout, Sequential, Parameter
 from torch.utils.data import Dataset, DataLoader
@@ -33,28 +32,31 @@ class Tokenizer:
         self.reverse_dict[self.encode_dict["<<|EOF|>>"]] = "<<|EOF|>>";
 
     def encode(self, text: str) -> list[int]:
-        tokens = [token for token in re.split(r'([,.!?:;_"()\']|--|\s)', text) if token.strip()];
+        tokens = [token for token in re.split(r'([,.!?:;_"()\'{}]|--|\s)', text) if token.strip()];
         tokens = [self.encode_dict[token] if token in self.encode_dict else self.encode_dict["<<|UNK|>>"] for token in tokens];
         return tokens;
 
     def decode(self, tokens: list[int]) -> str:
         output: str = ' '.join([self.reverse_dict[token] for token in tokens]);
-        output: str = re.sub(r'\s+([,.?!"()\'])', r'\1', output);
+        output: str = re.sub(r'\s+([,.?!"()\'{}])', r'\1', output);
         return output;
+
+    def decodeTensor(self, tokens: Tensor) -> str:
+        return self.decode(tokens.squeeze().tolist());
 
     def vocabSize(self) -> int:
         return len(self.encode_dict);
 
 class Data(Dataset):
-    def __init__(self, text: str, tokenizer: Tokenizer, max_length: int, stride: int) -> None:
+    def __init__(self, text: str, tokenizer: Tokenizer, maxLength: int, stride: int) -> None:
         self.tokenizer: Tokenizer = tokenizer;
         self.inputs: list[Tensor] = [];
         self.targets: list[Tensor] = [];
 
         tokens: list[int] = tokenizer.encode(text);
-        for i in range(0, len(tokens) - max_length, stride):
-            inputChunk = tokens[i:i + max_length];
-            targetChunk = tokens[i + 1: i + max_length + 1];
+        for i in range(0, len(tokens) - maxLength, stride):
+            inputChunk = tokens[i:i + maxLength];
+            targetChunk = tokens[i + 1: i + maxLength + 1];
             self.inputs.append(torch.tensor(inputChunk));
             self.targets.append(torch.tensor(targetChunk));
 
@@ -128,20 +130,20 @@ class GPT(Module):
     def __init__(self, vocabSize: int) -> None:
         super().__init__();
 
-        self.tokenEmbedding = Embedding(vocabSize + 1, CONFIG["emb_dim"]);
-        self.posEmbedding = Embedding(CONFIG["emb_dim"], CONFIG["emb_dim"]);
+        self.tokenEmbedding: Embedding = Embedding(vocabSize + 1, CONFIG["emb_dim"]);
+        self.posEmbedding: Embedding = Embedding(CONFIG["emb_dim"], CONFIG["emb_dim"]);
 
-        self.dropEmbedding = Dropout(CONFIG["drop_rate"]);
+        self.dropEmbedding: Dropout = Dropout(CONFIG["drop_rate"]);
         
-        self.blocks = Sequential(*[TransformerBlock() for _ in range(CONFIG["n_layers"])]);
+        self.blocks: Sequential = Sequential(*[TransformerBlock() for _ in range(CONFIG["n_layers"])]);
         
-        self.finalNorm = LayerNorm(CONFIG["emb_dim"]);
-        self.outHead = Linear(CONFIG["emb_dim"], vocabSize + 1, bias=False);
+        self.finalNorm: LayerNorm = LayerNorm(CONFIG["emb_dim"]);
+        self.outHead: Linear = Linear(CONFIG["emb_dim"], vocabSize + 1, bias=False);
 
-    def forward(self, inIdx: Tensor):
-        batch_size, seq_len = inIdx.shape;
-        tokenEmbeds = self.tokenEmbedding(inIdx);
-        posEmbeds = self.posEmbedding(torch.arange(seq_len, device=inIdx.device));
+    def forward(self, batch: Tensor) -> Tensor:
+        batchSize, strlen = batch.shape;
+        tokenEmbeds = self.tokenEmbedding(batch);
+        posEmbeds = self.posEmbedding(torch.arange(strlen, device=batch.device));
         x = posEmbeds + tokenEmbeds;
         x = self.dropEmbedding(x);
         x = self.blocks(x);
@@ -149,17 +151,58 @@ class GPT(Module):
         logits = self.outHead(x);
         return logits;
 
-class TransformerBlock(Module):
-    def __init__(self):
+class GELU(Module):
+    def __init__(self) -> None:
         super().__init__();
-        # A simple placeholder
 
     def forward(self, x: Tensor) -> Tensor:
+        # Some high-end maths
+        return 0.5 * x * (1 + torch.tanh(
+            torch.sqrt(torch.tensor(2.0 / torch.pi)) * 
+            (x + 0.044715 * torch.pow(x, 3))
+        ));
+
+class FeedForward(Module):
+    def __init__(self) -> None:
+        super().__init__();
+        self.layers: Sequential = Sequential(
+            Linear(CONFIG["emb_dim"], 4 * CONFIG["emb_dim"]),
+            GELU(),
+            Linear(4 * CONFIG["emb_dim"], CONFIG["emb_dim"]),
+        );
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.layers(x);
+
+class TransformerBlock(Module):
+    def __init__(self) -> None:
+        super().__init__();
+        
+        self.attention = Attention(CONFIG["emb_dim"], CONFIG["emb_dim"], CONFIG["context_length"], CONFIG["drop_rate"], CONFIG["n_heads"], CONFIG["qkv_bias"]);
+        self.ff = FeedForward();
+        self.norm1 = LayerNorm(CONFIG["emb_dim"]);
+        self.norm2 = LayerNorm(CONFIG["emb_dim"]);
+        self.drop_shortcut = Dropout(CONFIG["drop_rate"]);
+
+    def forward(self, x: Tensor) -> Tensor:
+        # Shortcuts for some gradient stuff
+        shortcut: Tensor = x;
+        x = self.norm1(x);
+        x = self.attention(x);
+        x = self.drop_shortcut(x);
+        x = x + shortcut;
+
+        shortcut: Tensor = x;
+        x = self.norm2(x);
+        x = self.ff(x);
+        x = self.drop_shortcut(x);
+        x = x + shortcut
+
         return x;
 
 
 class LayerNorm(Module):
-    def __init__(self, normalizedShape: int, eps: float = 1e-5):
+    def __init__(self, normalizedShape: int, eps: float = 1e-5) -> None:
         super().__init__();
 
         self.eps: float = eps;
@@ -178,43 +221,74 @@ def makeLoader(text: str, tokenizer: Tokenizer, batch_size: int = 4, max_length:
     dataLoader: DataLoader = DataLoader(data, batch_size=batch_size, shuffle=shuffle, drop_last=dropLast);
     return dataLoader;
 
+def textGenerator(model: GPT, batch: Tensor, maxNewTokens: int, contextSize: int) -> Tensor:
+    # idx is (batch, n_tokens) array of indices in the current context
+    for _ in range(maxNewTokens):
+        # Get the predictions
+        with torch.no_grad():
+            logits = model(batch[:, -contextSize:]);
+    
+        # Discard token size
+        logits = logits[:, -1, :];
+
+        # Apply softmax to get probabilities
+        probas = torch.softmax(logits, dim=-1);
+        nextToken = torch.argmax(probas, dim=-1, keepdim=True);
+
+        # Append sampled index to the running sequence
+        batch = torch.cat((batch, nextToken), dim=1);
+
+    return batch;
+
 def main() -> None:
-    with open('verdict', mode="r", encoding="utf-8") as file:
+    with open('verdict.txt', mode="r", encoding="utf-8") as file:
         text: str = file.read();
 
-    print(f"The verdict is {len(text)} characters long");
+    print(f"The training data is {len(text)} characters long");
 
-    tokens: list[str] = [token for token in re.split(r'([,.!?:;_"()\']|--|\s)', text) if token.strip()];
+    tokens: list[str] = [token for token in re.split(r'([,.!?:;_"()\'{}]|--|\s)', text) if token.strip()];
     print(f"This text consists of {len(tokens)} tokens");
     tokenizer: Tokenizer = Tokenizer(tokens);
+    print(f"Vocab size: {tokenizer.vocabSize()}");
+
     loader: DataLoader = makeLoader(text, tokenizer);
 
     model: GPT = GPT(tokenizer.vocabSize());
 
-    tokenEmbedding = Embedding(tokenizer.vocabSize() + 1, CONFIG["emb_dim"]);
-    posEmbedding = Embedding(CONFIG["emb_dim"], CONFIG["emb_dim"]);
+    params: int = sum(p.numel() for p in model.parameters());
+    print(f"Total number of parameters: {params}");
+
+    # Test
+    start_context: str = "his glory";
+
+    encoded = tokenizer.encode(start_context);
+    print("Encoded:", encoded);
+
+    encodedTensor = torch.tensor(encoded).unsqueeze(0);
+    print("Encoded shape:", encodedTensor.shape);
+
+    model.eval(); # Perf
+
+    out = textGenerator(
+        model=model,
+        batch=encodedTensor, 
+        maxNewTokens=6, 
+        contextSize=CONFIG["context_length"]
+    );
+
+    print("Output:", out);
+    print("Output length:", len(out[0]));
+
+    print(tokenizer.decodeTensor(out));
+
+    return;
 
     for batchNumber, batch in enumerate(loader):
         # We shall deal with batches here
+        # A batch is 4 phrased of 256 words
         inputs, targets = batch;
 
         logits = model(inputs);
-
-        print(inputs.shape);
-        print(logits.shape);
-        print(logits);
-
-        tokenEmbeddings: Tensor = tokenEmbedding(inputs); # The thing for the word groups
-        posEmbeddings: Tensor = posEmbedding(torch.arange(CONFIG["emb_dim"])); # Add to it the position of the word
-        # How tf does llms process these? Black magic(tm)
-
-        assert(CONFIG["emb_dim"] == batch.shape[2]);
-
-        # Embed some info in it and the context
-        inputs: Tensor = tokenEmbeddings + posEmbeddings;
-        attentionModel = Attention(CONFIG["emb_dim"], CONFIG["emb_dim"], CONFIG["context_length"], CONFIG["drop_rate"], CONFIG["n_heads"], CONFIG["qkv_bias"]);
-
-        inputs: Tensor = attentionModel(inputs);
 
         print(f"Processed batch {batchNumber}")
 
