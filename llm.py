@@ -9,8 +9,18 @@ import re
 import torch
 import matplotlib
 from torch import Tensor, inf
-from torch.nn import Embedding, Linear, Module, Dropout
+from torch.nn import Embedding, Linear, Module, Dropout, Sequential, Parameter
 from torch.utils.data import Dataset, DataLoader
+
+# Reference thing
+CONFIG = {
+    "context_length": 1024, # Context length
+    "emb_dim": 768,         # Embedding dimension
+    "n_heads": 12,          # Number of attention heads
+    "n_layers": 12,         # Number of layers
+    "drop_rate": 0.1,       # Dropout rate
+    "qkv_bias": False       # Query-Key-Value bias
+}
 
 class Tokenizer:
     def __init__(self, tokens: list[str]) -> None:
@@ -57,7 +67,7 @@ class Data(Dataset):
 
 # Bruh there is torch.nn.MultiheadAttention
 class Attention(Module):
-    def __init__(self, inSize: int, outSize: int, contextLength: int, dropout: float, numHeads: int, qkvBias: bool = False) -> None:
+    def __init__(self, inSize: int, outSize: int, contextLength: int = 1024, dropout: float = 0.1, numHeads: int = 12, qkvBias: bool = False) -> None:
         super().__init__();
 
         assert(outSize % numHeads == 0 and "out vector must be divisible by head number");
@@ -114,9 +124,58 @@ class Attention(Module):
 
         return context
 
-def makeLoader(text: str, tokenizer: Tokenizer, batch_size: int = 4, max_length: int = 256, stride: int = 128, shuffle: bool = True, drop_last: bool = True) -> DataLoader:
+class GPT(Module):
+    def __init__(self, vocabSize: int) -> None:
+        super().__init__();
+
+        self.tokenEmbedding = Embedding(vocabSize + 1, CONFIG["emb_dim"]);
+        self.posEmbedding = Embedding(CONFIG["emb_dim"], CONFIG["emb_dim"]);
+
+        self.dropEmbedding = Dropout(CONFIG["drop_rate"]);
+        
+        self.blocks = Sequential(*[TransformerBlock() for _ in range(CONFIG["n_layers"])]);
+        
+        self.finalNorm = LayerNorm(CONFIG["emb_dim"]);
+        self.outHead = Linear(CONFIG["emb_dim"], vocabSize + 1, bias=False);
+
+    def forward(self, inIdx: Tensor):
+        batch_size, seq_len = inIdx.shape;
+        tokenEmbeds = self.tokenEmbedding(inIdx);
+        posEmbeds = self.posEmbedding(torch.arange(seq_len, device=inIdx.device));
+        x = posEmbeds + tokenEmbeds;
+        x = self.dropEmbedding(x);
+        x = self.blocks(x);
+        x = self.finalNorm(x);
+        logits = self.outHead(x);
+        return logits;
+
+class TransformerBlock(Module):
+    def __init__(self):
+        super().__init__();
+        # A simple placeholder
+
+    def forward(self, x: Tensor) -> Tensor:
+        return x;
+
+
+class LayerNorm(Module):
+    def __init__(self, normalizedShape: int, eps: float = 1e-5):
+        super().__init__();
+
+        self.eps: float = eps;
+        self.scale: Tensor = Parameter(torch.ones(normalizedShape));
+        self.shift: Tensor = Parameter(torch.zeros(normalizedShape));
+
+    def forward(self, batch: Tensor) -> Tensor:
+        mean: Tensor = batch.mean(dim=-1, keepdim=True);
+        varitation: Tensor = batch.var(dim=-1, keepdim=True, unbiased=False);
+        norm: Tensor = (batch - mean) / torch.sqrt(varitation + self.eps);
+
+        return self.scale * norm + self.shift;
+
+def makeLoader(text: str, tokenizer: Tokenizer, batch_size: int = 4, max_length: int = 256, stride: int = 128, shuffle: bool = True, dropLast: bool = True) -> DataLoader:
     data: Data = Data(text, tokenizer, max_length, stride);
-    dataLoader: DataLoader = DataLoader(data, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last);
+    dataLoader: DataLoader = DataLoader(data, batch_size=batch_size, shuffle=shuffle, drop_last=dropLast);
     return dataLoader;
 
 def main() -> None:
@@ -130,33 +189,32 @@ def main() -> None:
     tokenizer: Tokenizer = Tokenizer(tokens);
     loader: DataLoader = makeLoader(text, tokenizer);
 
-    tokenEmbedding = Embedding(tokenizer.vocabSize() + 1, 256);
-    posEmbedding = Embedding(256, 256);
+    model: GPT = GPT(tokenizer.vocabSize());
+
+    tokenEmbedding = Embedding(tokenizer.vocabSize() + 1, CONFIG["emb_dim"]);
+    posEmbedding = Embedding(CONFIG["emb_dim"], CONFIG["emb_dim"]);
 
     for batchNumber, batch in enumerate(loader):
         # We shall deal with batches here
-        input, target = batch;
+        inputs, targets = batch;
 
-        tokenEmbeddings: Tensor = tokenEmbedding(input); # The thing for the word groups
-        posEmbeddings: Tensor = posEmbedding(torch.arange(256)); # Add to it the position of the word
-        # How tf does llms process these?
+        logits = model(inputs);
 
-        inputEmbeddings: Tensor = tokenEmbeddings + posEmbeddings;
-        inputs = torch.tensor(
-          [[0.43, 0.15, 0.89], # Your     (x^1)
-           [0.55, 0.87, 0.66], # journey  (x^2)
-           [0.57, 0.85, 0.64], # starts   (x^3)
-           [0.22, 0.58, 0.33], # with     (x^4)
-           [0.77, 0.25, 0.10], # one      (x^5)
-           [0.05, 0.80, 0.55]] # step     (x^6)
-        );
+        print(inputs.shape);
+        print(logits.shape);
+        print(logits);
 
-        batch = torch.stack((inputs, inputs), dim=0);
+        tokenEmbeddings: Tensor = tokenEmbedding(inputs); # The thing for the word groups
+        posEmbeddings: Tensor = posEmbedding(torch.arange(CONFIG["emb_dim"])); # Add to it the position of the word
+        # How tf does llms process these? Black magic(tm)
 
-        torch.manual_seed(123);
-        attentionModel = Attention(batch.shape[2], 2, batch.shape[1], 0.0, 2);
+        assert(CONFIG["emb_dim"] == batch.shape[2]);
 
-        print(attentionModel(batch));
+        # Embed some info in it and the context
+        inputs: Tensor = tokenEmbeddings + posEmbeddings;
+        attentionModel = Attention(CONFIG["emb_dim"], CONFIG["emb_dim"], CONFIG["context_length"], CONFIG["drop_rate"], CONFIG["n_heads"], CONFIG["qkv_bias"]);
+
+        inputs: Tensor = attentionModel(inputs);
 
         print(f"Processed batch {batchNumber}")
 
