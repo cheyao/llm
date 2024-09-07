@@ -10,6 +10,7 @@ import torch
 from torch import Tensor, inf
 from torch.nn import Embedding, Linear, Module, Dropout, Sequential, Parameter
 from torch.nn.functional import cross_entropy
+from torch.optim import AdamW
 from torch.utils.data import Dataset, DataLoader
 
 if torch.cuda.is_available():
@@ -235,7 +236,6 @@ def makeLoader(text: str, tokenizer: Tokenizer, batchSize: int = 4, maxLength: i
     return dataLoader;
 
 def textGenerator(model: GPT, batch: Tensor, maxNewTokens: int, contextSize: int) -> Tensor:
-    # idx is (batch, n_tokens) array of indices in the current context
     for _ in range(maxNewTokens):
         # Get the predictions
         with torch.no_grad():
@@ -283,6 +283,48 @@ def calcLossForLoader(loader: DataLoader, model: GPT, device, batchCount: int | 
 
     return totalLoss / batchCount;
 
+def evaluateModel(model: GPT, trainLoader: DataLoader, testLoader: DataLoader, device, eval_iter: int):
+    model.eval();
+
+    # Some performance
+    with torch.no_grad():
+        train_loss = calcLossForLoader(trainLoader, model, device, batchCount=eval_iter);
+        val_loss = calcLossForLoader(testLoader, model, device, batchCount=eval_iter);
+
+    model.train();
+
+    return train_loss, val_loss
+
+
+def trainModel(model: GPT, trainLoader: DataLoader, testLoader: DataLoader, optimizer, device, numEpochs: int, evalFreq, evalIter, startContext, tokenizer: Tokenizer):
+    tokensSeen, step = 0, -1;
+
+    for epoch in range(numEpochs):
+        # We are training!
+        model.train();
+        
+        for input, target in trainLoader:
+            optimizer.zero_grad(); # Reset
+            loss = calcLoss(input, target, model, device);
+            loss.backward();
+            optimizer.step();
+            tokensSeen += input.numel();
+            step += 1;
+
+            # Optional evaluation step
+            if step % evalFreq == 0:
+                trainLoss, testLoss = evaluateModel(model, trainLoader, testLoader, device, evalIter);
+                print(f"Cycle {epoch+1} (Step {step:06d}): ");
+                print(f"Train loss {trainLoss:.3f}, Test loss {testLoss:.3f}");
+
+        out = textGenerator(
+            model=model,
+            batch=torch.tensor(tokenizer.encode(startContext)).unsqueeze(0),
+            maxNewTokens=10,
+            contextSize=CONFIG["context_length"]
+        );
+        print(tokenizer.decodeTensor(out));
+
 def main() -> None:
     with open("verdict.txt", mode="r", encoding="utf-8") as file:
         data: str = file.read();
@@ -310,45 +352,10 @@ def main() -> None:
 
     print(f"Total number of parameters is {params}");
 
-    with torch.no_grad(): # Disable gradient tracking for efficiency because we are not training, yet
-        trainLoss = calcLossForLoader(trainLoader, model, device);
-        valLoss = calcLossForLoader(testLoader, model, device);
+    optimizer = AdamW(model.parameters(), lr=0.0004, weight_decay=0.1);
 
-    print("Training loss:", trainLoss)
-    print("Validation loss:", valLoss)
-
-    return;
-
-    out = textGenerator(
-        model=model,
-        batch=torch.tensor(tokenizer.encode(start_context)).unsqueeze(0), 
-        maxNewTokens=10, 
-        contextSize=CONFIG["context_length"]
-    );
-
-    print("Output:", out);
-    print("Output length:", len(out[0]));
-
-    print(tokenizer.decodeTensor(out));
-
-    # Did some maths for school, the maths reference book is trash
-    # They say:
-    # 2(|x^2 + 4x| - 0.5) = 
-    # 2(|x^2 + 2 * 2x + 2^2| - 2^2 - 0.5)
-    # Why tf does the enphasis (in red) not include 2^2?
-
-    return;
-
-    for batchNumber, batch in enumerate(loader):
-        # We shall deal with batches here
-        # A batch is 4 phrased of 256 words
-        inputs, targets = batch;
-
-        logits = model(inputs);
-
-        print(f"Processed batch {batchNumber}")
-
-        break;
+    numEpochs = 10;
+    trainModel(model, trainLoader=trainLoader, testLoader=testLoader, optimizer=optimizer, device=device, numEpochs=numEpochs, evalFreq=5, evalIter=5, startContext="three years later", tokenizer=tokenizer);
 
 if __name__ == "__main__":
     main();
