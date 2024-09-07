@@ -9,17 +9,30 @@ import re
 import torch
 from torch import Tensor, inf
 from torch.nn import Embedding, Linear, Module, Dropout, Sequential, Parameter
+from torch.nn.functional import cross_entropy
 from torch.utils.data import Dataset, DataLoader
 
-# Reference thing
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps") # Mac! Gotta *borrow* my dad's M1
+else:
+    device = torch.device("cpu")
+
+if (device == "cpu"):
+    print(f"Warning: Training on {device}: cuda not avaliable :(");
+else:
+    print(f"Using {device} device.")
+
+# Reference thing, I don't have a PHD so this is the same as OpenAI
 CONFIG = {
-    "context_length": 1024, # Context length
+    "context_length": 256,  # Context length
     "emb_dim": 768,         # Embedding dimension
     "n_heads": 12,          # Number of attention heads
     "n_layers": 12,         # Number of layers
     "drop_rate": 0.1,       # Dropout rate
     "qkv_bias": False       # Query-Key-Value bias
-}
+};
 
 class Tokenizer:
     def __init__(self, tokens: list[str]) -> None:
@@ -141,7 +154,7 @@ class GPT(Module):
         self.outHead: Linear = Linear(CONFIG["emb_dim"], vocabSize + 1, bias=False);
 
     def forward(self, batch: Tensor) -> Tensor:
-        batchSize, strlen = batch.shape;
+        _, strlen = batch.shape;
         tokenEmbeds = self.tokenEmbedding(batch);
         posEmbeds = self.posEmbedding(torch.arange(strlen, device=batch.device));
         x = posEmbeds + tokenEmbeds;
@@ -216,9 +229,9 @@ class LayerNorm(Module):
 
         return self.scale * norm + self.shift;
 
-def makeLoader(text: str, tokenizer: Tokenizer, batch_size: int = 4, max_length: int = 256, stride: int = 128, shuffle: bool = True, dropLast: bool = True) -> DataLoader:
-    data: Data = Data(text, tokenizer, max_length, stride);
-    dataLoader: DataLoader = DataLoader(data, batch_size=batch_size, shuffle=shuffle, drop_last=dropLast);
+def makeLoader(text: str, tokenizer: Tokenizer, batchSize: int = 4, maxLength: int = 256, stride: int = 128, shuffle: bool = True, dropLast: bool = True) -> DataLoader:
+    data: Data = Data(text, tokenizer, maxLength, stride);
+    dataLoader: DataLoader = DataLoader(data, batch_size=batchSize, shuffle=shuffle, drop_last=dropLast);
     return dataLoader;
 
 def textGenerator(model: GPT, batch: Tensor, maxNewTokens: int, contextSize: int) -> Tensor:
@@ -240,39 +253,76 @@ def textGenerator(model: GPT, batch: Tensor, maxNewTokens: int, contextSize: int
 
     return batch;
 
+def calcLoss(input: Tensor, target: Tensor, model: GPT, device) -> Tensor:
+    input, target = input.to(device), target.to(device);
+    logits: Tensor = model(input);
+    loss: Tensor = cross_entropy(logits.flatten(0, 1), target.flatten());
+    return loss;
+
+
+def calcLossForLoader(loader: DataLoader, model: GPT, device, batchCount: int | None = None):
+    totalLoss = 0.0;
+
+    if len(loader) == 0:
+        return float("nan");
+
+    if batchCount is None:
+        # Good idea! Train on all the data
+        # And at the same time melt my cpu and create a heater :D
+        batchCount = len(loader);
+    else:
+        # Prevent overflow
+        batchCount = min(batchCount, len(loader));
+
+    for batchNumber, (input, target) in enumerate(loader):
+        if batchNumber >= batchCount:
+            break;
+
+        loss = calcLoss(input, target, model, device);
+        totalLoss += loss.item();
+
+    return totalLoss / batchCount;
+
 def main() -> None:
-    with open('verdict.txt', mode="r", encoding="utf-8") as file:
-        text: str = file.read();
+    with open("verdict.txt", mode="r", encoding="utf-8") as file:
+        data: str = file.read();
 
-    print(f"The training data is {len(text)} characters long");
-
-    tokens: list[str] = [token for token in re.split(r'([,.!?:;_"()\'{}]|--|\s)', text) if token.strip()];
-    print(f"This text consists of {len(tokens)} tokens");
+    tokens: list[str] = [token for token in re.split(r'([,.!?:;_"()\'{}]|--|\s)', data) if token.strip()];
     tokenizer: Tokenizer = Tokenizer(tokens);
-    print(f"Vocab size: {tokenizer.vocabSize()}");
 
-    loader: DataLoader = makeLoader(text, tokenizer);
+    print(f"The training data is {len(data)} characters long");
+    print(f"This text consists of {len(tokens)} tokens");
+    print(f"The vocab size of the llm is {tokenizer.vocabSize()}");
+
+    # Split up the data
+    trainRatio = 0.90;
+    split = int(trainRatio * len(data));
+    trainData = data[:split];
+    testData  = data[split:];
+
+    trainLoader: DataLoader = makeLoader(trainData, tokenizer=tokenizer, batchSize=2, maxLength=CONFIG["context_length"], stride=CONFIG["context_length"], shuffle=True, dropLast=True);
+    testLoader: DataLoader = makeLoader(testData, tokenizer=tokenizer, batchSize=2, maxLength=CONFIG["context_length"], stride=CONFIG["context_length"], shuffle=False, dropLast=False);
 
     model: GPT = GPT(tokenizer.vocabSize());
+    model.to(device);
 
     params: int = sum(p.numel() for p in model.parameters());
-    print(f"Total number of parameters: {params}");
 
-    # Test
-    start_context: str = "his glory";
+    print(f"Total number of parameters is {params}");
 
-    encoded = tokenizer.encode(start_context);
-    print("Encoded:", encoded);
+    with torch.no_grad(): # Disable gradient tracking for efficiency because we are not training, yet
+        trainLoss = calcLossForLoader(trainLoader, model, device);
+        valLoss = calcLossForLoader(testLoader, model, device);
 
-    encodedTensor = torch.tensor(encoded).unsqueeze(0);
-    print("Encoded shape:", encodedTensor.shape);
+    print("Training loss:", trainLoss)
+    print("Validation loss:", valLoss)
 
-    model.eval(); # Perf
+    return;
 
     out = textGenerator(
         model=model,
-        batch=encodedTensor, 
-        maxNewTokens=6, 
+        batch=torch.tensor(tokenizer.encode(start_context)).unsqueeze(0), 
+        maxNewTokens=10, 
         contextSize=CONFIG["context_length"]
     );
 
@@ -280,6 +330,12 @@ def main() -> None:
     print("Output length:", len(out[0]));
 
     print(tokenizer.decodeTensor(out));
+
+    # Did some maths for school, the maths reference book is trash
+    # They say:
+    # 2(|x^2 + 4x| - 0.5) = 
+    # 2(|x^2 + 2 * 2x + 2^2| - 2^2 - 0.5)
+    # Why tf does the enphasis (in red) not include 2^2?
 
     return;
 
