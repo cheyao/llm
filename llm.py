@@ -291,13 +291,13 @@ def calcLossForLoader(loader: DataLoader, model: GPT, device, batchCount: int | 
 
     return totalLoss / batchCount;
 
-def evaluateModel(model: GPT, trainLoader: DataLoader, testLoader: DataLoader, device, eval_iter: int):
+def evaluateModel(model: GPT, trainLoader: DataLoader, testLoader: DataLoader, device, batchCount: int):
     model.eval();
 
     # Some performance
     with torch.no_grad():
-        train_loss = calcLossForLoader(trainLoader, model, device, batchCount=eval_iter);
-        val_loss = calcLossForLoader(testLoader, model, device, batchCount=eval_iter);
+        train_loss = calcLossForLoader(trainLoader, model, device, batchCount=batchCount);
+        val_loss = calcLossForLoader(testLoader, model, device, batchCount=batchCount);
 
     model.train();
 
