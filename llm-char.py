@@ -1,11 +1,6 @@
 #!/usr/bin/env python
 
-import os
-import sys
-import re
-from pathlib import Path
 from fastapi import FastAPI, Request
-from pathlib import Path
 from starlette.responses import FileResponse
 # Regex is not for phrasing json
 # Regex is not for phrasing json
@@ -43,13 +38,13 @@ CONFIG = {
 
 class Tokenizer:
     def __init__(self, text: str) -> None:
-        tokens = sorted(list(set(text)));
-        # self.encode_dict = {token:index for index, token in enumerate(list(set(tokens)))};
-        self.encode_dict = {"'": 0, 'k': 1, ':': 2, 'O': 3, 'd': 4, 'é': 5, ')': 6, 'i': 7, 'a': 8, '4': 9, 'g': 10, '5': 11, ',': 12, 'T': 13, 'b': 14, 'N': 15, 'R': 16, 'G': 17, '*': 18, 'w': 19, 'u': 20, '9': 21, 'U': 22, 'W': 23, 'X': 24, 'l': 25, 'm': 26, '#': 27, 'z': 28, 'r': 29, 'D': 30, '!': 31, 'C': 32, 'L': 33, 'S': 34, 'A': 35, 'p': 36, '2': 37, '0': 38, 'q': 39, 'n': 40, '$': 41, 'v': 42, 'B': 43, '(': 44, '%': 45, 'h': 46, ';': 47, '6': 48, '-': 49, 'x': 50, 'E': 51, 'Z': 52, 'J': 53, 't': 54, '&': 55, 'o': 56, 'Y': 57, 'I': 58, 'P': 59, '.': 60, 'K': 61, '\n': 62, 'j': 63, '—': 64, '3': 65, '~': 66, 'M': 67, '©': 68, '’': 69, '@': 70, '+': 71, '◆': 72, '1': 73, '?': 74, 'c': 75, 'V': 76, 's': 77, 'f': 78, 'y': 79, 'Q': 80, 'F': 81, '“': 82, '8': 83, '7': 84, '”': 85, '‘': 86, 'H': 87, 'e': 88, ' ': 89, '<<|UNK|>>': 90, '<<|EOF|>>': 91};
+        # tokens = sorted(list(set(text)));
+        # self.encode_dict = {token:index for index, token in enumerate(tokens)};
+        # self.encode_dict = {"'": 0, 'k': 1, ':': 2, 'O': 3, 'd': 4, 'é': 5, ')': 6, 'i': 7, 'a': 8, '4': 9, 'g': 10, '5': 11, ',': 12, 'T': 13, 'b': 14, 'N': 15, 'R': 16, 'G': 17, '*': 18, 'w': 19, 'u': 20, '9': 21, 'U': 22, 'W': 23, 'X': 24, 'l': 25, 'm': 26, '#': 27, 'z': 28, 'r': 29, 'D': 30, '!': 31, 'C': 32, 'L': 33, 'S': 34, 'A': 35, 'p': 36, '2': 37, '0': 38, 'q': 39, 'n': 40, '$': 41, 'v': 42, 'B': 43, '(': 44, '%': 45, 'h': 46, ';': 47, '6': 48, '-': 49, 'x': 50, 'E': 51, 'Z': 52, 'J': 53, 't': 54, '&': 55, 'o': 56, 'Y': 57, 'I': 58, 'P': 59, '.': 60, 'K': 61, '\n': 62, 'j': 63, '—': 64, '3': 65, '~': 66, 'M': 67, '©': 68, '’': 69, '@': 70, '+': 71, '◆': 72, '1': 73, '?': 74, 'c': 75, 'V': 76, 's': 77, 'f': 78, 'y': 79, 'Q': 80, 'F': 81, '“': 82, '8': 83, '7': 84, '”': 85, '‘': 86, 'H': 87, 'e': 88, ' ': 89, '<<|UNK|>>': 90, '<<|EOF|>>': 91};
         # The one for big model
-        # self.encode_dict = {'L': 0, 'h': 1, '—': 2, ';': 3, 'V': 4, 'j': 5, '\x1b': 6, '3': 7, 'R': 8, '0': 9, '‘': 10, '©': 11, 'Z': 12, 'i': 13, 'P': 14, 's': 15, '/': 16, 'u': 17, 'w': 18, '!': 19, 'Q': 20, 'O': 21, 'G': 22, '5': 23, '-': 24, 'z': 25, '”': 26, 'x': 27, 'C': 28, 'r': 29, 'f': 30, 'q': 31, 'D': 32, '8': 33, 'S': 34, 'y': 35, '1': 36, '+': 37, 'o': 38, 'm': 39, '?': 40, '[': 41, '4': 42, '%': 43, 'E': 44, 'T': 45, '$': 46, 'U': 47, ',': 48, 'b': 49, 'p': 50, '&': 51, '6': 52, '“': 53, 'c': 54, 'N': 55, 'à': 56, 'ç': 57, '(': 58, ')': 59, 'I': 60, '*': 61, ' ': 62, 'g': 63, 'W': 64, '7': 65, ':': 66, 'M': 67, 'a': 68, 'n': 69, 'Y': 70, 'e': 71, '@': 72, 'k': 73, '2': 74, '9': 75, '\n': 76, 'H': 77, '\u2060': 78, '\xad': 79, 'é': 80, 'd': 81, '#': 82, 'B': 83, '.': 84, "'": 85, '~': 86, 'è': 87, 'A': 88, '◆': 89, 'X': 90, 'v': 91, 'F': 92, 'K': 93, '’': 94, 'l': 95, 't': 96, 'J': 97, '<<|UNK|>>': 98, '<<|EOF|>>': 99};
-        self.encode_dict["<<|UNK|>>"] = len(self.encode_dict);
-        self.encode_dict["<<|EOF|>>"] = len(self.encode_dict);
+        self.encode_dict = {'r': 0, 'z': 1, 'R': 2, 'P': 3, '’': 4, ':': 5, '—': 6, 't': 7, 'm': 8, '\u2060': 9, 'X': 10, 'a': 11, '©': 12, '1': 13, 'ç': 14, 'i': 15, "'": 16, '-': 17, 'D': 18, '[': 19, 'é': 20, '5': 21, '~': 22, 'L': 23, 'h': 24, '4': 25, 'n': 26, 'K': 27, 'S': 28, '+': 29, 'j': 30, 'Z': 31, 'C': 32, 'I': 33, 'U': 34, '“': 35, 'g': 36, 'p': 37, '‘': 38, '$': 39, 'o': 40, 'G': 41, 'w': 42, '.': 43, '\n': 44, 'F': 45, 'k': 46, 'u': 47, 'è': 48, 'Q': 49, 'V': 50, '/': 51, ' ': 52, 'T': 53, '@': 54, '”': 55, 'H': 56, 'A': 57, 'd': 58, 'v': 59, '\xad': 60, '8': 61, 'J': 62, '9': 63, '\x1b': 64, 'y': 65, 'Y': 66, ')': 67, 'W': 68, '0': 69, 'q': 70, 'M': 71, 'x': 72, '%': 73, 'à': 74, '3': 75, 'f': 76, 'c': 77, 'l': 78, 's': 79, 'B': 80, '?': 81, '#': 82, 'e': 83, '(': 84, '◆': 85, '*': 86, ',': 87, 'E': 88, '6': 89, 'O': 90, ';': 91, 'b': 92, '&': 93, '2': 94, '7': 95, '!': 96, 'N': 97, '<<|UNK|>>': 98, '<<|EOF|>>': 99};
+        # self.encode_dict["<<|UNK|>>"] = len(self.encode_dict);
+        # self.encode_dict["<<|EOF|>>"] = len(self.encode_dict);
         print(self.encode_dict);
 
         self.reverse_dict = {index:token for token, index in self.encode_dict.items()};
@@ -207,6 +202,7 @@ class TransformerBlock(Module):
         self.ff = FeedForward();
         self.norm1 = LayerNorm(CONFIG["emb_dim"]);
         self.norm2 = LayerNorm(CONFIG["emb_dim"]);
+        self.norm3 = LayerNorm(CONFIG["emb_dim"]);
         self.drop_shortcut = Dropout(CONFIG["drop_rate"]);
 
     def forward(self, x: Tensor) -> Tensor:
@@ -219,6 +215,12 @@ class TransformerBlock(Module):
 
         shortcut: Tensor = x;
         x = self.norm2(x);
+        x = self.ff(x);
+        x = self.drop_shortcut(x);
+        x = x + shortcut;
+        
+        shortcut: Tensor = x;
+        x = self.norm3(x);
         x = self.ff(x);
         x = self.drop_shortcut(x);
         x = x + shortcut;
@@ -355,7 +357,7 @@ def trainModel(model: GPT, trainLoader: DataLoader, testLoader: DataLoader, opti
 # 3819442 characters
 # 17817 unique words
 # Read the book, it's peak fiction
-with open("ln/aob-12-part.txt", mode="r", encoding="utf-8") as file:
+with open("ln/full.txt", mode="r", encoding="utf-8") as file:
     data: str = file.read();
 
 tokenizer: Tokenizer = Tokenizer(data);
@@ -372,11 +374,11 @@ testData  = data[:split];
 # trainLoader: DataLoader = makeLoader(trainData, tokenizer=tokenizer, batchSize=15, maxLength=CONFIG["context_length"], stride=CONFIG["context_length"], shuffle=True, dropLast=True);
 # testLoader: DataLoader = makeLoader(testData, tokenizer=tokenizer, batchSize=15, maxLength=CONFIG["context_length"], stride=CONFIG["context_length"], shuffle=False, dropLast=False);
 
-checkpoint = torch.load("model-5.pth", map_location=torch.device('cpu'));
+checkpoint = torch.load("large-aob.pth", map_location=torch.device('cpu'));
 model: GPT = GPT(tokenizer.vocabSize());
 model = model.to(device);
 model.load_state_dict(checkpoint["modelState"]);
-model.train();
+model.eval();
 
 params: int = sum(p.numel() for p in model.parameters());
 
@@ -400,12 +402,21 @@ out = textGenerator(
     );
 print(tokenizer.decodeTensor(out));
 
+TOKENS = 20;
+ip_map = {};
+
 app = FastAPI();
 
 @app.get("/api/{string}")
 async def read_item(string, request: Request):
-    #if request.client == "159.147.173.142":
+    #if request.client.host == "159.147.173.142":
     #    return {"output": "Hey stop abusing the api"};
+    if not request.client == None:
+        if ip_map[request.client.host] >= TOKENS:
+            return {"output": "Insufficient credits! Contact cyao on slack to get more!"};
+
+        ip_map[request.client.host] += 1;
+
     if "<<|UNK|>>" in tokenizer.decode(tokenizer.encode(string)):
         return {"output": "Your prompt contains unknown token"};
 
@@ -424,6 +435,3 @@ async def read_item(string, request: Request):
 async def index():
     return FileResponse('index.html');
 
-@app.get("/aob-12-part.txt")
-async def d():
-    return FileResponse('ln/aob-12-part.txt');
