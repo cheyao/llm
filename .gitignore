@@ -4,6 +4,7 @@ data.txt
 llm/
 wizard.txt
 ln/
+*.pth
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,visualstudio,macos,vim
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,visualstudiocode,visualstudio,macos,vim

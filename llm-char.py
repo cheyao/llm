@@ -3,7 +3,6 @@
 import os
 import sys
 import re
-from fastapi import FastAPI
 from pathlib import Path
 # Regex is not for phrasing json
 # Regex is not for phrasing json
@@ -40,7 +39,8 @@ CONFIG = {
 };
 
 class Tokenizer:
-    def __init__(self, tokens: list[str]) -> None:
+    def __init__(self, text: str) -> None:
+        tokens = sorted(list(set(text)));
         self.encode_dict = {token:index for index, token in enumerate(list(set(tokens)))};
         self.encode_dict["<<|UNK|>>"] = len(self.encode_dict);
         self.encode_dict["<<|EOF|>>"] = len(self.encode_dict);
@@ -50,13 +50,11 @@ class Tokenizer:
         self.reverse_dict[self.encode_dict["<<|EOF|>>"]] = "<<|EOF|>>";
 
     def encode(self, text: str) -> list[int]:
-        tokens = [token for token in re.split(r'([,.!?:;_"()\'{}]|--|\s)', text) if token.strip()];
-        tokens = [self.encode_dict[token] if token in self.encode_dict else self.encode_dict["<<|UNK|>>"] for token in tokens];
+        tokens = [self.encode_dict[token] if token in self.encode_dict else self.encode_dict["<<|UNK|>>"] for token in text];
         return tokens;
 
     def decode(self, tokens: list[int]) -> str:
-        output: str = ' '.join([self.reverse_dict[token] for token in tokens]);
-        output: str = re.sub(r'\s+([,.?!"()\'{}])', r'\1', output);
+        output: str = ''.join([self.reverse_dict[token] for token in tokens]);
         return output;
 
     def decodeTensor(self, tokens: Tensor) -> str:
@@ -324,6 +322,16 @@ def trainModel(model: GPT, trainLoader: DataLoader, testLoader: DataLoader, opti
                 print(f"Cycle {epoch+1} (Step {step:06d}): ");
                 print(f"Train loss {trainLoss:.3f}, Test loss {testLoss:.3f}");
 
+            if step % 100 == 0:
+                out = textGenerator(
+                    model=model,
+                    batch=torch.tensor(tokenizer.encode(startContext)).unsqueeze(0),
+                    maxNewTokens=80,
+                    contextSize=CONFIG["context_length"],
+                    device=device
+                );
+                print(tokenizer.decodeTensor(out));
+
         if Path("state.pth.old").exists():
             Path("state.pth.old").unlink();
 
@@ -335,68 +343,69 @@ def trainModel(model: GPT, trainLoader: DataLoader, testLoader: DataLoader, opti
         out = textGenerator(
             model=model,
             batch=torch.tensor(tokenizer.encode(startContext)).unsqueeze(0),
-            maxNewTokens=10,
+            maxNewTokens=80,
             contextSize=CONFIG["context_length"],
             device=device
         );
         print(tokenizer.decodeTensor(out));
 
-if len(sys.argv) == 1:
-    print(f"Usage: python3 {sys.argv[0]} [model] {{Thing}}")
+def main() -> None:
+    # 1st and 2nd part of Ascendance of a Bookworm
+    # 814028 tokens
+    # 3819442 characters
+    # 17817 unique words
+    # Read the book, it's peak fiction
+    with open("ln/aob-12-part.txt", mode="r", encoding="utf-8") as file:
+        data: str = file.read();
 
-# 1st and 2nd part of Ascendance of a Bookworm
-# 814028 tokens
-# 3819442 characters
-# 17817 unique words
-# Read the book, it's peak fiction
-with open("ln/aob-12-part.txt", mode="r", encoding="utf-8") as file:
-    data: str = file.read();
+    tokenizer: Tokenizer = Tokenizer(data);
 
-tokens: list[str] = [token for token in re.split(r'([,.!?:;_"()\'{}]|--|\s)', data) if token.strip()];
-tokenizer: Tokenizer = Tokenizer(tokens);
+    print(f"The training data is {len(data)} characters long");
+    print(f"This text consists of {len(data)} tokens");
+    print(f"The vocab size of the llm is {tokenizer.vocabSize()}");
 
-print(f"The training data is {len(data)} characters long");
-print(f"This text consists of {len(tokens)} tokens");
-print(f"The vocab size of the llm is {tokenizer.vocabSize()}");
+    # Split up the data
+    trainRatio = 0.90;
+    split = int(trainRatio * len(data));
+    trainData = data[:split];
+    testData  = data[split:];
 
-# Split up the data
-trainRatio = 0.90;
-split = int(trainRatio * len(data));
-trainData = data[:split];
-testData  = data[split:];
+    trainLoader: DataLoader = makeLoader(trainData, tokenizer=tokenizer, batchSize=2, maxLength=CONFIG["context_length"], stride=CONFIG["context_length"], shuffle=True, dropLast=True);
+    testLoader: DataLoader = makeLoader(testData, tokenizer=tokenizer, batchSize=2, maxLength=CONFIG["context_length"], stride=CONFIG["context_length"], shuffle=False, dropLast=False);
+    # checkpoint = torch.load(sys.argv[1], map_location=device);
 
-trainLoader: DataLoader = makeLoader(trainData, tokenizer=tokenizer, batchSize=20, maxLength=CONFIG["context_length"], stride=CONFIG["context_length"], shuffle=True, dropLast=True);
-testLoader: DataLoader = makeLoader(testData, tokenizer=tokenizer, batchSize=20, maxLength=CONFIG["context_length"], stride=CONFIG["context_length"], shuffle=False, dropLast=False);
-checkpoint = torch.load("colab-2.pth", map_location=device);
+    model: GPT = GPT(tokenizer.vocabSize());
+    model = model.to(device);
+    # model.load_state_dict(checkpoint["modelState"]);
+    model.train();
 
-model: GPT = GPT(tokenizer.vocabSize());
-model = model.to(device);
-model.load_state_dict(checkpoint["modelState"]);
-model.train();
+    params: int = sum(p.numel() for p in model.parameters());
 
-params: int = sum(p.numel() for p in model.parameters());
+    print(f"Total number of parameters is {params}");
 
-print(f"Total number of parameters is {params}");
+    optimizer = AdamW(model.parameters(), lr=0.0004, weight_decay=0.1);
+    # optimizer.load_state_dict(checkpoint["optimizerState"]);
 
-optimizer = AdamW(model.parameters(), lr=0.0004, weight_decay=0.1);
-optimizer.load_state_dict(checkpoint["optimizerState"]);
+    if len(sys.argv) == 2:
+        numEpochs = 10;
+        trainModel(model, trainLoader=trainLoader, testLoader=testLoader, optimizer=optimizer, device=device, numEpochs=numEpochs, evalFreq=10, evalIter=5, startContext="Myne has", tokenizer=tokenizer);
+    else:
+        while True:
+            i: str = input("Prompt: ");
+            out = textGenerator(
+                model=model,
+                batch=torch.tensor(tokenizer.encode(i)).unsqueeze(0),
+                maxNewTokens=80,
+                contextSize=CONFIG["context_length"],
+                device=device
+            );
+            print("Output:", tokenizer.decodeTensor(out));
 
-# if len(sys.argv) == 2:
-    # numEpochs = 1000;
-    # trainModel(model, trainLoader=trainLoader, testLoader=testLoader, optimizer=optimizer, device=device, numEpochs=numEpochs, evalFreq=10, evalIter=5, startContext="three years later", tokenizer=tokenizer);
-    # else:
-app = FastAPI();
+if __name__ == "__main__":
+    torch.set_num_threads(1); # Gotta leave overnight
 
-@app.get("/api/{string}")
-async def read_item(string):
-    print("Req", string);
-    out = textGenerator(
-        model=model,
-        batch=torch.tensor(tokenizer.encode(string)).unsqueeze(0),
-        maxNewTokens=10,
-        contextSize=CONFIG["context_length"],
-        device=device
-    );
-    print("Output:", tokenizer.decodeTensor(out));
-    return {"output": tokenizer.decodeTensor(out)};
+    if len(sys.argv) == 1:
+        print(f"Usage: python3 {sys.argv[0]} [model] {{Thing}}")
+    else:
+        main();
 
