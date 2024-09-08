@@ -3,8 +3,9 @@
 import os
 import sys
 import re
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pathlib import Path
+from starlette.responses import FileResponse
 # Regex is not for phrasing json
 # Regex is not for phrasing json
 # Regex is not for phrasing json
@@ -367,7 +368,7 @@ testData  = data[split:];
 
 trainLoader: DataLoader = makeLoader(trainData, tokenizer=tokenizer, batchSize=20, maxLength=CONFIG["context_length"], stride=CONFIG["context_length"], shuffle=True, dropLast=True);
 testLoader: DataLoader = makeLoader(testData, tokenizer=tokenizer, batchSize=20, maxLength=CONFIG["context_length"], stride=CONFIG["context_length"], shuffle=False, dropLast=False);
-checkpoint = torch.load("colab-2.pth", map_location=device);
+checkpoint = torch.load("colab-3.pth", map_location=device);
 
 model: GPT = GPT(tokenizer.vocabSize());
 model = model.to(device);
@@ -388,15 +389,32 @@ optimizer.load_state_dict(checkpoint["optimizerState"]);
 app = FastAPI();
 
 @app.get("/api/{string}")
-async def read_item(string):
+async def read_item(string, request: Request):
+    #if request.client == "159.147.173.142":
+    #    return {"output": "Hey stop abusing the api"};
+    if "<<|UNK|>>" in tokenizer.decode(tokenizer.encode(string)):
+        return {"output": "Your prompt contains unknown token"};
+
     print("Req", string);
     out = textGenerator(
         model=model,
         batch=torch.tensor(tokenizer.encode(string)).unsqueeze(0),
-        maxNewTokens=10,
+        maxNewTokens=20,
         contextSize=CONFIG["context_length"],
         device=device
     );
-    print("Output:", tokenizer.decodeTensor(out));
+    print(f"ip: {request.client} Output:", tokenizer.decodeTensor(out));
     return {"output": tokenizer.decodeTensor(out)};
+
+@app.get("/")
+async def index():
+    return FileResponse('index.html');
+
+@app.get("/model.pth")
+async def m():
+    return FileResponse('colab-3.pth');
+
+@app.get("/aob-12-part.txt")
+async def d():
+    return FileResponse('ln/aob-12-part.txt');
 

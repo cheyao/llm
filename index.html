@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>LLM</title>
+    <link rel="stylesheet" href="./style.css">
+    <link rel="icon" href="./favicon.ico" type="image/x-icon">
+  </head>
+  <body>
+    <main>
+        <h1>Welcome to my LLM</h1>  
+	<p>The llm is trained on 7 volumes of AoB (light novel :P)</p>
+	<p>This model is using words as tokens as opposed of characters.</p>
+	<p>It is a bit overfitted, I should've used all 42 volumes, but that would reqire a ton of GPUs and time (most importantly I will need to pay)</p>
+	<p>Anyways type in something and you will get a response</p>
+	<label for="fname">Prompt</label>
+	<input id ="prompt" type="text" id="fname" name="fname"><br><br>
+	<input type="button" value="Send" onclick="req()">
+	<p id ="output">Output: </p>
+	<p>There is a api at http://cyao.duckdns.org/api/{Your prompt here}</p>
+    </main>
+    <script>
+	    function httpGet(theUrl) {
+		var xmlHttp = new XMLHttpRequest();
+		xmlHttp.open("GET", theUrl, false); // false for synchronous request
+		xmlHttp.send(null);
+		return xmlHttp.responseText;
+	    }
+
+	    function req() {
+		document.getElementById('output').textContent = "Output: " + JSON.parse(httpGet("api/" + document.getElementById('prompt').value))["output"];
+	    }
+    </script>
+  </body>
+</html>
+
