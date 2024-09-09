@@ -53,6 +53,7 @@ class Tokenizer:
 
 
     def encode(self, text: str) -> list[int]:
+        text = text.replace('"', '“');
         tokens = [self.encode_dict[token] if token in self.encode_dict else self.encode_dict["<<|UNK|>>"] for token in text];
 
         return tokens;
@@ -376,6 +377,7 @@ testData  = data[:split];
 
 checkpoint = torch.load("large-aob.pth", map_location=torch.device('cpu'));
 model: GPT = GPT(tokenizer.vocabSize());
+model = torch.nn.DataParallel(model)
 model = model.to(device);
 model.load_state_dict(checkpoint["modelState"]);
 model.eval();
@@ -391,7 +393,7 @@ print(f"Total number of parameters is {params}");
 
 # torch.save({"modelState": model.state_dict(), "optimizerState": optimizer.state_dict()}, "t.pth");
 
-PROMPT = "three years later"
+PROMPT = "three years later";
 
 out = textGenerator(
         model=model,
@@ -411,11 +413,17 @@ app = FastAPI();
 async def read_item(string, request: Request):
     #if request.client.host == "159.147.173.142":
     #    return {"output": "Hey stop abusing the api"};
+
     if not request.client == None:
+        if not request.client.host in ip_map:
+            ip_map[request.client.host] = 0;
+
         if ip_map[request.client.host] >= TOKENS:
             return {"output": "Insufficient credits! Contact cyao on slack to get more!"};
 
         ip_map[request.client.host] += 1;
+
+        print(f"Client has used {ip_map[request.client.host]} token");
 
     if "<<|UNK|>>" in tokenizer.decode(tokenizer.encode(string)):
         return {"output": "Your prompt contains unknown token"};
@@ -434,4 +442,3 @@ async def read_item(string, request: Request):
 @app.get("/")
 async def index():
     return FileResponse('index.html');
-
