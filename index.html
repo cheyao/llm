@@ -9,22 +9,21 @@
   <body>
     <main>
         <h1>Welcome to my LLM</h1>  
-	<h3>I am training a new model on all 33 volumes</h3>
 	<p>The llm is trained on all 33 volumes of Ascendance of a Bookworm (best light novel :P)</p>
 	<p>This model is using words as tokens as opposed of characters.</p>
 	<p>Anyways type in something and you will get a response</p>
 	<p>Everyone gets 20 free prompts (My laptop isn't free computational power, sorry)</p>
+	<p>Ask something in aob, for example "Myne"</p>
 	<h2>Please WAIT after sending prompt, it takes ~30 seconds for my laptop to compute a prompt</h2>
 	<label for="fname">Prompt</label>
 	<input id ="prompt" type="text" id="fname" name="fname"><br><br>
 	<input type="button" value="Send" onclick="req()">
 	<p id ="output">Output: </p>
-	<p>There is a api at http://cyao.duckdns.org/api/{Your prompt here}</p>
     </main>
     <script>
 	    function httpGet(theUrl) {
 		var xmlHttp = new XMLHttpRequest();
-		xmlHttp.open("GET", theUrl, false); // false for synchronous request
+		xmlHttp.open("GET", url, false);
 		xmlHttp.send(null);
 		return xmlHttp.responseText;
 	    }
