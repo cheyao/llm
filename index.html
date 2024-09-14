@@ -29,7 +29,7 @@
 	    }
 
 	    function req() {
-		document.getElementById('output').textContent = "Output: " + JSON.parse(httpGet("api/" + document.getElementById('prompt').value))["output"];
+		document.getElementById('output').textContent = "Output: " + JSON.parse(httpGet("api/hidden/api/" + document.getElementById('prompt').value))["output"];
 	    }
     </script>
   </body>
